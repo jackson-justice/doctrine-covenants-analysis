@@ -1,0 +1,318 @@
+---
+title: "Patterns of Revelation in the Doctrine and Covenants"
+subtitle: "A Statistical Exploration for the Foundations of the Restoration Capstone Project"
+format:
+  pdf:
+    toc: true
+    toc-depth: 2
+    number-sections: true
+execute:
+  echo: false
+  warning: false
+  message: false
+editor: visual
+---
+
+## Introduction
+
+This project is my final report for an alternative capstone in REL C 225: Foundations of the Restoration. My goal was to use data analysis to better understand patterns in the Doctrine and Covenants and then reflect on what those patterns might suggest about revelation, faith, and my own spiritual development.
+
+I chose this topic because it gave me a way to bring together two areas that are important to me. In statistics, I’m trained to look for patterns, variation, and evidence. In the scriptures, I’m trying to understand how God gives instruction, how revelation works, and what it means to live as a covenant disciple. By combining those two perspectives, I wanted to study the Doctrine and Covenants in a way that was both careful and analytical, but also personal and meaningful.
+
+## Data and Methods
+
+The dataset for this project contains one row for each section of the Doctrine and Covenants (I did not include the Official Declarations). The cleaned file includes the following columns:
+
+- `section`: section number
+- `year`: year associated with the revelation
+- `location`: place where the revelation was received
+- `text`: original text
+- `clean_text`: cleaned version used for analysis
+- `word_count`: number of words in the cleaned text
+
+Before doing any analysis, I cleaned the text by removing verse numbers and fixing extra spacing. This made sure that things like word counts and word frequencies actually reflected the content of the sections, rather than formatting from the original text. I also added historical information like year and location so I could study each section in its real-world context.
+
+```{r}
+library(tidyverse)
+library(knitr)
+library(scales)
+
+csv_path <- "Doctrine_And_Covenants_Cleaned.csv"
+
+dc <- read_csv(csv_path, show_col_types = FALSE) |>
+  mutate(
+    year = suppressWarnings(as.numeric(year)),
+    word_count = suppressWarnings(as.numeric(word_count)),
+    clean_text = replace_na(clean_text, ""),
+    location = replace_na(location, "Unknown")
+  )
+
+keywords <- c(
+  "revelation",
+  "priesthood",
+  "zion",
+  "covenant",
+  "commandment",
+  "repentance"
+)
+
+stopwords_custom <- c(
+  "the", "and", "of", "to", "that", "in", "for", "be", "is", "it", "this",
+  "with", "as", "which", "by", "ye", "shall", "unto", "your", "you", "my",
+  "a", "an", "or", "from", "on", "are", "was", "were", "but", "not", "have",
+  "has", "had", "their", "they", "them", "who", "all", "will", "at", "his",
+  "her", "he", "she", "i", "we", "our", "thou", "thy", "thee", "thine",
+  "yea", "verily", "behold", "saith", "hath", "thus", "thereof", "therein",
+  "therewith", "wherefore", "wherein", "whoso", "whosoever", "let", "may",
+  "say", "even", "also", "upon", "these", "those", "there", "hereby",
+  "thereby", "thereunto", "therefrom", "thereon", "doth", "shalt", "art",
+  "hast", "giveth", "lest", "whereby"
+)
+
+word_variants <- c(
+  "commandments" = "commandment",
+  "covenants" = "covenant",
+  "revelations" = "revelation",
+  "servants" = "servant",
+  "words" = "word",
+  "hearts" = "heart",
+  "children" = "child",
+  "days" = "day",
+  "hands" = "hand",
+  "men" = "man",
+  "saints" = "saint",
+  "sins" = "sin",
+  "laws" = "law",
+  "churches" = "church",
+  "houses" = "house"
+)
+
+count_keyword <- function(text, keyword) {
+  str_count(str_to_lower(text), regex(paste0("\\b", keyword, "\\b")))
+}
+
+word_frequency_table <- function(text_vector, stopwords, variants) {
+  tibble(text = text_vector) |>
+    mutate(text = str_to_lower(text)) |>
+    mutate(word = str_extract_all(text, "[a-z]+")) |>
+    unnest(word) |>
+    filter(str_length(word) > 2) |>
+    filter(!word %in% stopwords) |>
+    mutate(word = if_else(word %in% names(variants), unname(variants[word]), word)) |>
+    count(word, sort = TRUE)
+}
+
+keyword_count_cols <- paste0(keywords, "_count")
+
+dc_keywords <- dc
+for (kw in keywords) {
+  dc_keywords[[paste0(kw, "_count")]] <- count_keyword(dc_keywords$clean_text, kw)
+}
+
+dc_keywords <- dc_keywords |>
+  mutate(
+    total_keyword_count = rowSums(across(all_of(keyword_count_cols)))
+  )
+
+word_freq <- word_frequency_table(dc_keywords$clean_text, stopwords_custom, word_variants)
+```
+
+## Basic Summary
+
+```{r}
+summary_table <- tibble(
+  metric = c(
+    "Number of sections",
+    "Year range",
+    "Unique locations",
+    "Average word count",
+    "Median word count",
+    "Minimum word count",
+    "Maximum word count"
+  ),
+  value = c(
+    nrow(dc_keywords),
+    paste0(min(dc_keywords$year, na.rm = TRUE), " to ", max(dc_keywords$year, na.rm = TRUE)),
+    n_distinct(dc_keywords$location),
+    round(mean(dc_keywords$word_count, na.rm = TRUE), 1),
+    round(median(dc_keywords$word_count, na.rm = TRUE), 1),
+    min(dc_keywords$word_count, na.rm = TRUE),
+    max(dc_keywords$word_count, na.rm = TRUE)
+  )
+)
+
+kable(summary_table, caption = "Basic summary statistics for the Doctrine and Covenants dataset")
+```
+
+The dataset includes 138 sections and spans revelations from 1823 to 1918. Even before looking at the visuals, the summary table suggests that the Doctrine and Covenants is both historically grounded and structurally varied, especially in section length.
+
+## Exploratory Analysis
+
+### Number of Sections by Year
+
+```{r}
+sections_by_year <- dc_keywords |>
+  filter(!is.na(year)) |>
+  count(year, name = "sections")
+
+ggplot(sections_by_year, aes(x = factor(year), y = sections)) +
+  geom_col(fill = "#4C78A8", color = "black") +
+  labs(
+    title = "Number of Sections by Year",
+    x = "Year",
+    y = "Number of Sections"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+The revelations are not distributed evenly across time but cluster heavily in the early 1830s. This matches the early years of the Church, when it had just been organized and the Saints needed direction to establish doctrine and structure. As the Church became more established, revelations became less frequent, suggesting that revelation comes in response to real needs rather than being spread evenly over time.
+
+### Number of Sections by Location
+
+```{r}
+sections_by_location <- dc_keywords |>
+  count(location, sort = TRUE)
+
+ggplot(sections_by_location, aes(x = fct_reorder(location, n), y = n)) +
+  geom_col(fill = "#F58518", color = "black") +
+  coord_flip() +
+  labs(
+    title = "Number of Sections by Location",
+    x = "Location",
+    y = "Number of Sections"
+  ) +
+  theme_minimal(base_size = 12)
+```
+
+The location counts show that revelation was concentrated in a few places, especially Kirtland. That makes historical sense. Revelation came where the Saints were gathering, growing the Church, and facing major decisions. This shows that revelation in the Doctrine and Covenants is closely tied to where the Saints were and what they were experiencing.
+
+### Distribution of Section Word Counts
+
+```{r}
+ggplot(dc_keywords, aes(x = word_count)) +
+  geom_histogram(binwidth = 250, fill = "#54A24B", color = "black") +
+  labs(
+    title = "Distribution of Section Word Counts",
+    x = "Word Count",
+    y = "Frequency"
+  ) +
+  theme_minimal(base_size = 12)
+```
+
+Section lengths vary quite a bit. Some sections are short and direct, while others are much longer and more developed. This helped me see that revelation isn’t always given the same way. Sometimes a brief instruction is enough, while other times more detailed guidance is needed to teach doctrine, organize the Church, or address specific challenges.
+
+### Section Number vs Word Count
+
+```{r}
+ggplot(dc_keywords, aes(x = section, y = word_count)) +
+  geom_point(color = "#E45756", alpha = 0.8, size = 2.2) +
+  labs(
+    title = "Section Number vs Word Count",
+    x = "Section Number",
+    y = "Word Count"
+  ) +
+  theme_minimal(base_size = 12)
+```
+
+The scatter plot shows that longer sections are spread throughout the Doctrine and Covenants rather than concentrated in one part of the book. This helped me see that revelation doesn’t follow a single pattern. Some situations required brief guidance, while others called for longer and more detailed instruction.
+
+### Total Frequency of Selected Doctrinal Keywords
+
+```{r}
+keyword_cols <- c(
+  "revelation_count",
+  "priesthood_count",
+  "zion_count",
+  "covenant_count",
+  "commandment_count",
+  "repentance_count"
+)
+
+keyword_totals <- dc_keywords |>
+  select(matches("^(revelation|priesthood|zion|covenant|commandment|repentance)_count$")) |>
+  summarize(across(everything(), sum)) |>
+  pivot_longer(cols = everything(), names_to = "keyword", values_to = "count") |>
+  mutate(keyword = str_remove(keyword, "_count$")) |>
+  arrange(desc(count))
+
+ggplot(keyword_totals, aes(x = fct_reorder(keyword, count), y = count)) +
+  geom_col(fill = "#72B7B2", color = "black") +
+  labs(
+    title = "Total Frequency of Selected Doctrinal Keywords",
+    x = "Keyword",
+    y = "Total Count"
+  ) +
+  theme_minimal(base_size = 12)
+
+kable(keyword_totals, caption = "Total keyword frequencies across the Doctrine and Covenants")
+```
+
+The keyword counts show a strong emphasis on themes like Zion, priesthood, commandment, covenant, revelation, and repentance. While these are not the only important ideas in the Doctrine and Covenants, they highlight some of its central focuses: how God communicates with His people, what He asks of them, and how they are meant to grow and change. This helped me see that the Doctrine and Covenants is not just about doctrine, but about how to actually live as a disciple.
+
+### Top Words in the Doctrine and Covenants
+
+```{r}
+top_words <- word_freq |>
+  slice_head(n = 20)
+
+ggplot(top_words, aes(x = fct_reorder(word, n), y = n)) +
+  geom_col(fill = "#B279A2", color = "black") +
+  coord_flip() +
+  labs(
+    title = "Top Words in the Doctrine and Covenants",
+    x = "Word",
+    y = "Frequency"
+  ) +
+  theme_minimal(base_size = 12)
+
+kable(word_freq |> slice_head(n = 25), caption = "Top 25 words after removing filler words and grouping obvious variants")
+```
+
+After removing common filler words, the most frequent remaining words still point to the main focus of the text. Words like Lord, God, church, servant, commandment, Zion, spirit, and priesthood show that the Doctrine and Covenants is centered on divine authority, covenant identity, and instruction for how to live faithfully. Even a simple count of how often words appear suggests that the book is not just theological, but also focused on organization and building a covenant community.
+
+## Additional Ranked Results
+
+### Top 10 Longest Sections
+
+```{r}
+longest_sections <- dc_keywords |>
+  select(section, year, location, word_count) |>
+  arrange(desc(word_count)) |>
+  slice_head(n = 10)
+
+kable(longest_sections, caption = "Top 10 longest sections by word count")
+```
+
+### Top 10 Sections by Total Doctrinal Keyword Counts
+
+```{r}
+top_keyword_sections <- dc_keywords |>
+  select(section, year, location, total_keyword_count, word_count) |>
+  arrange(desc(total_keyword_count)) |>
+  slice_head(n = 10)
+
+kable(top_keyword_sections, caption = "Top 10 sections by total selected doctrinal keyword counts")
+```
+
+These tables highlight which sections are longest and which ones contain the highest concentration of the doctrinal themes selected for this project. Seeing them side by side helped me notice that length and doctrinal emphasis are not always the same, and they give a good starting point for taking a closer look at specific sections.
+
+## Interpretation of Findings
+
+Taken together, these results helped me see that revelation in the Doctrine and Covenants is closely tied to real situations and is not spread evenly over time. The clustering in certain years reflects periods when the Church was growing quickly and needed direction. The concentration in places like Kirtland shows that revelation came within specific communities as important decisions were being made. The variation in section length also shows that revelation does not come in just one form. Sometimes it is brief and direct, and other times it is more detailed depending on what is needed.
+
+The keyword and word-frequency results point to consistent themes like authority, covenant responsibility, spiritual commitment, gathering, and instruction. While these patterns do not prove anything on their own, they gave me a clearer way to see what the Doctrine and Covenants emphasizes most often.
+
+## Spiritual Reflection and Conclusion
+
+This analysis helped me build on what I’ve learned throughout this semester and reinforced one of our core beliefs as members of The Church of Jesus Christ of Latter-day Saints: that God is our loving Heavenly Father. He is a living God who continues to guide His children. He did not stop speaking in the past, but continues to direct His Church today, especially through living prophets. As I worked through this project, I saw more clearly how He gives direction to His people in specific times and places. That strengthened my testimony that His Church has been restored on the earth and that it is led by His priesthood authority through prophets beginning with Joseph Smith and continuing today with President Oaks.
+
+One thing that stood out to me is that God meets His people where they are. The patterns in the Doctrine and Covenants show that revelation often comes in response to real needs, questions, and challenges. That made revelation feel more personal and more relevant to my own life.
+
+At the same time, this project helped me recognize the limits of a purely statistical perspective. While my statistical mindset helped me identify patterns, it is not the primary way to understand how God works. True understanding of revelation comes through personal experience, listening to the Holy Ghost, and seeking to recognize how God is communicating with me. That is something the Doctrine and Covenants consistently teaches.
+
+This project changed the way I think about revelation in the Doctrine and Covenants. Looking at the sections as data made it easier to see that revelation unfolds over time rather than appearing all at once. It comes in clusters, in particular places, and in response to real historical needs. That pattern suggests a God who gives instruction according to the circumstances of His people rather than in abstraction.
+
+The project also showed me that statistics and faith do not have to be separate ways of knowing. Statistical analysis cannot capture the full spiritual meaning of scripture, but it can help identify patterns that deserve closer attention. In that sense, statistics became a tool for asking better questions about revelation rather than replacing spiritual interpretation.
+
+Overall, this capstone helped me connect my academic training with my religious beliefs in a meaningful way. It reminded me that careful analysis and sincere faith can work together. Studying the Doctrine and Covenants in this way made it feel both more historically grounded and more personally relevant. It strengthened my understanding that revelation is both a historical reality and a personal, ongoing experience.
